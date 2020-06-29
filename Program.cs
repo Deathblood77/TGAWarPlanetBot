@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -154,18 +155,37 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		private string GetAuthToken()
+		{
+			var jsonString = File.ReadAllText("auth.json");
+
+			var options = new JsonDocumentOptions
+			{
+				AllowTrailingCommas = true
+			};
+
+			using (JsonDocument document = JsonDocument.Parse(jsonString, options))
+			{
+				JsonElement tokenElem;
+				if (document.RootElement.TryGetProperty("token", out tokenElem))
+				{
+					return tokenElem.GetString();
+				}
+
+				Console.WriteLine("Failed to read auth token!");
+				return "";
+			}
+		}
+
 		public async Task MainAsync()
 		{
 			// Centralize the logic for commands into a separate method.
 			await InitCommands();
 
-			var myJsonString = File.ReadAllText("auth.json");
+			string authToken = GetAuthToken();
 
 			// Login and connect.
-			await m_client.LoginAsync(TokenType.Bot,
-				// < DO NOT HARDCODE YOUR TOKEN >
-				//Environment.GetEnvironmentVariable("DiscordToken")
-				);
+			await m_client.LoginAsync(TokenType.Bot, authToken);
 			await m_client.StartAsync();
 
 			// Wait infinitely so your bot actually stays connected.
