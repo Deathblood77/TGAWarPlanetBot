@@ -12,13 +12,16 @@ namespace TGAWarPlanetBot
 	public class Player
 	{
 		public string Name { get; set; }
+		// Game nickname
+		public string Nick { get; set; }
+		public ulong DiscordId { get; set; }
 	}
 
 	public class PlayerDatabase
 	{
 		public ulong Id { get; set; }
 		public string Name { get; set; }
-		public List<Player> Players { get; }
+		public List<Player> Players { get; set; }
 
 		public PlayerDatabase()
 		{
@@ -95,7 +98,26 @@ namespace TGAWarPlanetBot
 			PlayerDatabase database = GetDatabase(guild);
 
 			database.Players.Add(new Player() { Name = name });
+
 			UpdateDatabase(database);
+		}
+
+		public bool ConnectPlayer(string name, SocketUser user, SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			int index = database.Players.FindIndex(x => x.Name == name);
+			if (index >= 0)
+			{
+				database.Players[index].DiscordId = user.Id;
+
+				UpdateDatabase(database);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
 		}
 	}
 
@@ -115,21 +137,35 @@ namespace TGAWarPlanetBot
 			await ReplyAsync("Awailable commands:\n\t!player add Name\n\t!player list");
 		}
 
-		// !player add -> print error about missing param
-		[Command("add")]
-		[Summary("Add new player.")]
-		public async Task AddAsync()
-		{
-			await ReplyAsync("!player add requires parameter Name.");
-		}
-
 		// !player add Name
 		[Command("add")]
 		[Summary("Add new player.")]
-		public async Task AddAsync(string name)
+		public async Task AddAsync(string name = "")
 		{
-			m_database.AddPlayer(name, Context.Guild);
-			await ReplyAsync("Player " + name + " created!");
+			if (name.Length == 0 || name.StartsWith("!"))
+			{
+				await ReplyAsync("Invalid player name!");
+			}
+			else
+			{
+				m_database.AddPlayer(name, Context.Guild);
+				await ReplyAsync("Player " + name + " created!");
+			}
+		}
+
+		// !player add Name
+		[Command("connect")]
+		[Summary("Connect player to discord id.")]
+		public async Task ConnectAsync(string name, SocketUser user)
+		{
+			if (m_database.ConnectPlayer(name, user, Context.Guild))
+			{
+				await ReplyAsync($"Connected {name} -> {user.Username}#{user.Discriminator}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to connect {name} -> {user.Username}#{user.Discriminator}");
+			}
 		}
 	}
 }
