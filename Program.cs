@@ -19,8 +19,7 @@ namespace TGAWarPlanetBot
 		private readonly CommandService m_commands;
 		private readonly IServiceProvider m_services;
 
-		static void Main(string[] args)
-			=> new Program().MainAsync().GetAwaiter().GetResult();
+		static void Main(string[] args) => new Program().MainAsync().GetAwaiter().GetResult();
 
 		private Program()
 		{
@@ -63,10 +62,10 @@ namespace TGAWarPlanetBot
 		// If this method is getting pretty long, you can seperate it out into another file using partials.
 		private static IServiceProvider ConfigureServices()
 		{
-			var map = new ServiceCollection();
+			var map = new ServiceCollection()
 				// Repeat this for all the service classes
 				// and other dependencies that your commands might need.
-				//.AddSingleton(new SomeServiceClass());
+				.AddSingleton(new PlayerDatabaseService());
 
 			// When all your required services are in the collection, build the container.
 			// Tip: There's an overload taking in a 'validateScopes' bool to make sure
