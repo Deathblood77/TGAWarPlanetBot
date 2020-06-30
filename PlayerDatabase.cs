@@ -154,7 +154,13 @@ namespace TGAWarPlanetBot
 			sb.Append("```");
 			foreach (var player in m_database.GetPlayers(Context.Guild))
 			{
-				sb.Append(String.Format("{0,-20} {1,-20}\n", player.Name, player.DiscordId));
+				string userString = "<Not set>";
+				if (player.DiscordId > 0)
+				{
+					SocketGuildUser user = Context.Guild.GetUser(player.DiscordId);
+					userString = $"{user.Username}#{user.Discriminator}";
+				}
+				sb.Append(String.Format("{0,-20} {1,-20}\n", player.Name, userString));
 			}
 			sb.Append("```");
 
