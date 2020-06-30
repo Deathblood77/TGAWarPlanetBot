@@ -13,8 +13,9 @@ namespace TGAWarPlanetBot
 	{
 		public string Name { get; set; }
 		// Game nickname
-		public string Nick { get; set; }
+		public string GameName { get; set; }
 		public ulong DiscordId { get; set; }
+		public string GameId { get; set; }
 	}
 
 	public class PlayerDatabase
@@ -93,6 +94,13 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		public IEnumerable<Player> GetPlayers(SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			return database.Players;
+		}
+
 		public void AddPlayer(string name, SocketGuild guild)
 		{
 			PlayerDatabase database = GetDatabase(guild);
@@ -135,6 +143,22 @@ namespace TGAWarPlanetBot
 		public async Task DefaultAsync()
 		{
 			await ReplyAsync("Awailable commands:\n\t!player add Name\n\t!player list");
+		}
+
+		// !player list
+		[Command("list")]
+		[Summary("List all players.")]
+		public async Task ListAsync()
+		{
+			var sb = new System.Text.StringBuilder();
+			sb.Append("```");
+			foreach (var player in m_database.GetPlayers(Context.Guild))
+			{
+				sb.Append(String.Format("{0,-20} {1,-20}\n", player.Name, player.DiscordId));
+			}
+			sb.Append("```");
+
+			await ReplyAsync(sb.ToString());
 		}
 
 		// !player add Name
