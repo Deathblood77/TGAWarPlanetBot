@@ -127,6 +127,24 @@ namespace TGAWarPlanetBot
 				return false;
 			}
 		}
+
+		public bool SetPlayerId(string name, string gameId, SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			int index = database.Players.FindIndex(x => x.Name == name);
+			if (index >= 0)
+			{
+				database.Players[index].GameId = gameId;
+
+				UpdateDatabase(database);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
 	}
 
 	[Group("player")]
@@ -154,13 +172,14 @@ namespace TGAWarPlanetBot
 			sb.Append("```");
 			foreach (var player in m_database.GetPlayers(Context.Guild))
 			{
-				string userString = "<Not set>";
+				string userString = "<N/A>";
 				if (player.DiscordId > 0)
 				{
 					SocketGuildUser user = Context.Guild.GetUser(player.DiscordId);
 					userString = $"{user.Username}#{user.Discriminator}";
 				}
-				sb.Append(String.Format("{0,-20} {1,-20}\n", player.Name, userString));
+				string gameId = player.GameId != null ? player.GameId : "<N/A>";
+				sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", player.Name, userString, gameId));
 			}
 			sb.Append("```");
 
@@ -183,7 +202,7 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		// !player add Name
+		// !player connect Name DiscordUser
 		[Command("connect")]
 		[Summary("Connect player to discord id.")]
 		public async Task ConnectAsync(string name, SocketUser user)
@@ -195,6 +214,21 @@ namespace TGAWarPlanetBot
 			else
 			{
 				await ReplyAsync($"Failed to connect {name} -> {user.Username}#{user.Discriminator}");
+			}
+		}
+
+		// !player setid Name GameId
+		[Command("setid")]
+		[Summary("Set id for player.")]
+		public async Task SetIdAsync(string name, string gameId)
+		{
+			if (m_database.SetPlayerId(name, gameId, Context.Guild))
+			{
+				await ReplyAsync($"Set game id of {name} -> {gameId}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to set game id of {name}");
 			}
 		}
 	}
