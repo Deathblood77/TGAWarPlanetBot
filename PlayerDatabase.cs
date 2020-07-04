@@ -162,6 +162,16 @@ namespace TGAWarPlanetBot
 			UpdateDatabase(database);
 			return true;
 		}
+
+		public bool SetPlayerGameName(Player player, string gameName, SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			player.GameName = gameName;
+
+			UpdateDatabase(database);
+			return true;
+		}
 	}
 
 	[Group("player")]
@@ -187,16 +197,13 @@ namespace TGAWarPlanetBot
 		{
 			var sb = new System.Text.StringBuilder();
 			sb.Append("```");
+			sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", "Name", "GameName", "GameId"));
+			sb.Append("------------------------------------------------------\n");
 			foreach (var player in m_database.GetPlayers(Context.Guild))
 			{
-				string userString = "<N/A>";
-				if (player.DiscordId > 0)
-				{
-					SocketGuildUser user = Context.Guild.GetUser(player.DiscordId);
-					userString = $"{user.Username}#{user.Discriminator}";
-				}
+				string gameName = player.GameName != null ? player.GameName : "<N/A>";
 				string gameId = player.GameId != null ? player.GameId : "<N/A>";
-				sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", player.Name, userString, gameId));
+				sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", player.Name, gameName, gameId));
 			}
 			sb.Append("```");
 
@@ -241,7 +248,7 @@ namespace TGAWarPlanetBot
 		// !player setid Name GameId
 		[RequireUserPermission(GuildPermission.Administrator)]
 		[Command("setid")]
-		[Summary("Set id for player.")]
+		[Summary("Set game id for player.")]
 		public async Task SetIdAsync(string name, string gameId)
 		{
 			Player player = m_database.GetPlayer(name, Context.Guild);
@@ -249,6 +256,24 @@ namespace TGAWarPlanetBot
 			{
 				m_database.SetPlayerGameId(player, gameId, Context.Guild);
 				await ReplyAsync($"Set game id of {name} -> {gameId}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find player with name {name}");
+			}
+		}
+
+		// !player setname Name GameName
+		[RequireUserPermission(GuildPermission.Administrator)]
+		[Command("setname")]
+		[Summary("Set game name for player.")]
+		public async Task SetNameAsync(string name, string gameName)
+		{
+			Player player = m_database.GetPlayer(name, Context.Guild);
+			if (player != null)
+			{
+				m_database.SetPlayerGameName(player, gameName, Context.Guild);
+				await ReplyAsync($"Set game name of {name} -> {gameName}");
 			}
 			else
 			{
