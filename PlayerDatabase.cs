@@ -101,49 +101,46 @@ namespace TGAWarPlanetBot
 			return database.Players;
 		}
 
-		public void AddPlayer(string name, SocketGuild guild)
+		public Player AddPlayer(string name, SocketGuild guild)
 		{
 			PlayerDatabase database = GetDatabase(guild);
 
-			database.Players.Add(new Player() { Name = name });
+			Player newPlayer = new Player() { Name = name };
+			database.Players.Add(newPlayer);
 
 			UpdateDatabase(database);
+			return newPlayer;
 		}
 
-		public bool ConnectPlayer(string name, SocketUser user, SocketGuild guild)
+		public Player GetPlayer(string name, SocketGuild guild)
 		{
 			PlayerDatabase database = GetDatabase(guild);
 
 			int index = database.Players.FindIndex(x => x.Name == name);
 			if (index >= 0)
 			{
-				database.Players[index].DiscordId = user.Id;
-
-				UpdateDatabase(database);
-				return true;
+				return database.Players[index];
 			}
 			else
 			{
-				return false;
+				return null;
 			}
 		}
 
-		public bool SetPlayerId(string name, string gameId, SocketGuild guild)
+		public bool ConnectPlayer(Player player, SocketUser user, SocketGuild guild)
 		{
 			PlayerDatabase database = GetDatabase(guild);
 
-			int index = database.Players.FindIndex(x => x.Name == name);
-			if (index >= 0)
-			{
-				database.Players[index].GameId = gameId;
+			player.DiscordId = user.Id;
+			return true;
+		}
 
-				UpdateDatabase(database);
-				return true;
-			}
-			else
-			{
-				return false;
-			}
+		public bool SetPlayerGameId(Player player, string gameId, SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			player.GameId = gameId;
+			return true;
 		}
 	}
 
@@ -207,13 +204,15 @@ namespace TGAWarPlanetBot
 		[Summary("Connect player to discord id.")]
 		public async Task ConnectAsync(string name, SocketUser user)
 		{
-			if (m_database.ConnectPlayer(name, user, Context.Guild))
+			Player player = m_database.GetPlayer(name, Context.Guild);
+			if (player != null)
 			{
+				m_database.ConnectPlayer(player, user, Context.Guild);
 				await ReplyAsync($"Connected {name} -> {user.Username}#{user.Discriminator}");
 			}
 			else
 			{
-				await ReplyAsync($"Failed to connect {name} -> {user.Username}#{user.Discriminator}");
+				await ReplyAsync($"Failed to find player with name {name}");
 			}
 		}
 
@@ -222,13 +221,15 @@ namespace TGAWarPlanetBot
 		[Summary("Set id for player.")]
 		public async Task SetIdAsync(string name, string gameId)
 		{
-			if (m_database.SetPlayerId(name, gameId, Context.Guild))
+			Player player = m_database.GetPlayer(name, Context.Guild);
+			if (player != null)
 			{
+				m_database.SetPlayerGameId(player, gameId, Context.Guild);
 				await ReplyAsync($"Set game id of {name} -> {gameId}");
 			}
 			else
 			{
-				await ReplyAsync($"Failed to set game id of {name}");
+				await ReplyAsync($"Failed to find player with name {name}");
 			}
 		}
 	}
