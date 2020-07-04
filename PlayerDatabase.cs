@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 
@@ -147,6 +148,8 @@ namespace TGAWarPlanetBot
 			PlayerDatabase database = GetDatabase(guild);
 
 			player.DiscordId = user.Id;
+
+			UpdateDatabase(database);
 			return true;
 		}
 
@@ -155,6 +158,8 @@ namespace TGAWarPlanetBot
 			PlayerDatabase database = GetDatabase(guild);
 
 			player.GameId = gameId;
+
+			UpdateDatabase(database);
 			return true;
 		}
 	}
@@ -199,6 +204,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player add Name
+		[RequireUserPermission(GuildPermission.Administrator)]
 		[Command("add")]
 		[Summary("Add new player.")]
 		public async Task AddAsync(string name = "")
@@ -215,6 +221,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player connect Name DiscordUser
+		[RequireUserPermission(GuildPermission.Administrator)]
 		[Command("connect")]
 		[Summary("Connect player to discord id.")]
 		public async Task ConnectAsync(string name, SocketUser user)
@@ -232,6 +239,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player setid Name GameId
+		[RequireUserPermission(GuildPermission.Administrator)]
 		[Command("setid")]
 		[Summary("Set id for player.")]
 		public async Task SetIdAsync(string name, string gameId)
