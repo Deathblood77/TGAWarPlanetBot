@@ -42,12 +42,6 @@ namespace TGAWarPlanetBot
 			m_databases = new Dictionary<ulong, PlayerDatabase>();
 
 			// If db directory does not exist we create it
-			// if (!Directory.Exists("db"))
-			// {
-			// 	Directory.CreateDirectory("db");
-			// }
-
-			// All player databases are in a player folder to allow us to find them easily
 			if (!Directory.Exists(m_databaseDir))
 			{
 				Directory.CreateDirectory(m_databaseDir);
@@ -63,7 +57,7 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		private PlayerDatabase GetDatabase(SocketGuild guild)
+		public PlayerDatabase GetDatabase(SocketGuild guild)
 		{
 			PlayerDatabase database;
 			ulong databaseId = guild.Id;
@@ -90,10 +84,8 @@ namespace TGAWarPlanetBot
 			};
 
 			string jsonFile = m_databaseDir + "/" + database.Name + "_" + database.Id + ".json";
-			using (var fileStream = File.Open(jsonFile, FileMode.OpenOrCreate))
-			{
-				JsonSerializer.SerializeAsync<PlayerDatabase>(fileStream, database, options);
-			}
+			string jsonText = JsonSerializer.Serialize<PlayerDatabase>(database, options);
+			File.WriteAllText(jsonFile, jsonText);
 		}
 
 		public IEnumerable<Player> GetPlayers(SocketGuild guild)
@@ -103,10 +95,8 @@ namespace TGAWarPlanetBot
 			return database.Players;
 		}
 
-		public Player AddPlayer(string name, SocketGuild guild)
+		public Player AddPlayer(string name, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			Player newPlayer = new Player() { Name = name };
 			database.Players.Add(newPlayer);
 
@@ -114,10 +104,8 @@ namespace TGAWarPlanetBot
 			return newPlayer;
 		}
 
-		public Player GetPlayer(string name, SocketGuild guild)
+		public Player GetPlayer(string name, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			int index = database.Players.FindIndex(x => x.Name == name);
 			if (index >= 0)
 			{
@@ -129,10 +117,8 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		public Player GetPlayerFromGameId(string gameId, SocketGuild guild)
+		public Player GetPlayerFromGameId(string gameId, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			int index = database.Players.FindIndex(x => x.GameId == gameId);
 			if (index >= 0)
 			{
@@ -144,40 +130,32 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		public bool ConnectPlayer(Player player, SocketUser user, SocketGuild guild)
+		public bool ConnectPlayer(Player player, SocketUser user, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			player.DiscordId = user.Id;
 
 			UpdateDatabase(database);
 			return true;
 		}
 
-		public bool SetPlayerGameId(Player player, string gameId, SocketGuild guild)
+		public bool SetPlayerGameId(Player player, string gameId, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			player.GameId = gameId;
 
 			UpdateDatabase(database);
 			return true;
 		}
 
-		public bool SetPlayerGameName(Player player, string gameName, SocketGuild guild)
+		public bool SetPlayerGameName(Player player, string gameName, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			player.GameName = gameName;
 
 			UpdateDatabase(database);
 			return true;
 		}
 
-		public bool SetPlayerFaction(Player player, string faction, SocketGuild guild)
+		public bool SetPlayerFaction(Player player, string faction, PlayerDatabase database)
 		{
-			PlayerDatabase database = GetDatabase(guild);
-
 			player.Faction = faction;
 
 			UpdateDatabase(database);
@@ -188,10 +166,10 @@ namespace TGAWarPlanetBot
 	[Group("player")]
 	public class PlayerModule : ModuleBase<SocketCommandContext>
 	{
-		private readonly PlayerDatabaseService m_database;
-		public PlayerModule(PlayerDatabaseService database)
+		private readonly PlayerDatabaseService m_databaseService;
+		public PlayerModule(PlayerDatabaseService databaseService)
 		{
-			m_database = database;
+			m_databaseService = databaseService;
 		}
 
 		// !player
@@ -209,8 +187,8 @@ namespace TGAWarPlanetBot
 			var sb = new System.Text.StringBuilder();
 			sb.Append("```");
 			sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", "Name", "GameName", "GameId", "Faction"));
-			sb.Append("---------------------------------------------------------------------\n");
-			foreach (var player in m_database.GetPlayers(Context.Guild))
+			sb.Append("-------------------------------------------------------------------\n");
+			foreach (var player in m_databaseService.GetPlayers(Context.Guild))
 			{
 				string gameName = player.GameName != null ? player.GameName : "<N/A>";
 				string gameId = player.GameId != null ? player.GameId : "<N/A>";
@@ -234,7 +212,8 @@ namespace TGAWarPlanetBot
 			}
 			else
 			{
-				m_database.AddPlayer(name, Context.Guild);
+				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+				m_databaseService.AddPlayer(name, database);
 				await ReplyAsync("Player " + name + " created!");
 			}
 		}
@@ -245,10 +224,11 @@ namespace TGAWarPlanetBot
 		[Summary("Connect player to discord id.")]
 		public async Task ConnectAsync(string name, SocketUser user)
 		{
-			Player player = m_database.GetPlayer(name, Context.Guild);
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player player = m_databaseService.GetPlayer(name, database);
 			if (player != null)
 			{
-				m_database.ConnectPlayer(player, user, Context.Guild);
+				m_databaseService.ConnectPlayer(player, user, database);
 				await ReplyAsync($"Connected {name} -> {user.Username}#{user.Discriminator}");
 			}
 			else
@@ -263,10 +243,11 @@ namespace TGAWarPlanetBot
 		[Summary("Set game id for player.")]
 		public async Task SetIdAsync(string name, string gameId)
 		{
-			Player player = m_database.GetPlayer(name, Context.Guild);
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player player = m_databaseService.GetPlayer(name, database);
 			if (player != null)
 			{
-				m_database.SetPlayerGameId(player, gameId, Context.Guild);
+				m_databaseService.SetPlayerGameId(player, gameId, database);
 				await ReplyAsync($"Set game id of {name} -> {gameId}");
 			}
 			else
@@ -281,10 +262,11 @@ namespace TGAWarPlanetBot
 		[Summary("Set game name for player.")]
 		public async Task SetNameAsync(string name, string gameName)
 		{
-			Player player = m_database.GetPlayer(name, Context.Guild);
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player player = m_databaseService.GetPlayer(name, database);
 			if (player != null)
 			{
-				m_database.SetPlayerGameName(player, gameName, Context.Guild);
+				m_databaseService.SetPlayerGameName(player, gameName, database);
 				await ReplyAsync($"Set game name of {name} -> {gameName}");
 			}
 			else
@@ -299,10 +281,11 @@ namespace TGAWarPlanetBot
 		[Summary("Set faction for player.")]
 		public async Task SetFactionAsync(string name, string faction)
 		{
-			Player player = m_database.GetPlayer(name, Context.Guild);
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player player = m_databaseService.GetPlayer(name, database);
 			if (player != null)
 			{
-				m_database.SetPlayerFaction(player, faction, Context.Guild);
+				m_databaseService.SetPlayerFaction(player, faction, database);
 				await ReplyAsync($"Set faction of {name} -> {faction}");
 			}
 			else
@@ -322,11 +305,13 @@ namespace TGAWarPlanetBot
 				return;
 			}
 
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+
 			// Try to find player with name and if that fails from game id
-			Player player = m_database.GetPlayer(nameOrId, Context.Guild);
+			Player player = m_databaseService.GetPlayer(nameOrId, database);
 			if (player == null)
 			{
-				player = m_database.GetPlayerFromGameId(nameOrId, Context.Guild);
+				player = m_databaseService.GetPlayerFromGameId(nameOrId, database);
 			}
 
 			if (player != null)
