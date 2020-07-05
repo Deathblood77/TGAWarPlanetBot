@@ -77,7 +77,7 @@ namespace TGAWarPlanetBot
 			return database;
 		}
 
-		private void UpdateDatabase(PlayerDatabase database)
+		public void UpdateDatabase(PlayerDatabase database)
 		{
 			var options = new JsonSerializerOptions
 			{
@@ -105,9 +105,16 @@ namespace TGAWarPlanetBot
 			return newPlayer;
 		}
 
+		public void RemovePlayer(PlayerDatabase database, Player player)
+		{
+			database.Players.Remove(player);
+
+			UpdateDatabase(database);
+		}
+
 		public Player GetPlayer(PlayerDatabase database, string name)
 		{
-			int index = database.Players.FindIndex(x => x.Name == name);
+			int index = database.Players.FindIndex(x => x.Name.ToLower() == name.ToLower());
 			if (index >= 0)
 			{
 				return database.Players[index];
@@ -138,30 +145,6 @@ namespace TGAWarPlanetBot
 			UpdateDatabase(database);
 			return true;
 		}
-
-		public bool SetPlayerGameId(PlayerDatabase database, Player player, string gameId)
-		{
-			player.GameId = gameId;
-
-			UpdateDatabase(database);
-			return true;
-		}
-
-		public bool SetPlayerGameName(PlayerDatabase database, Player player, string gameName)
-		{
-			player.GameName = gameName;
-
-			UpdateDatabase(database);
-			return true;
-		}
-
-		public bool SetPlayerFaction(PlayerDatabase database, Player player, string faction)
-		{
-			player.Faction = faction;
-
-			UpdateDatabase(database);
-			return true;
-		}
 	}
 
 	[Group("player")]
@@ -182,6 +165,7 @@ namespace TGAWarPlanetBot
 			sb.Append("usage: !player <command> [<args>]\n\n");
 			sb.Append(String.Format("\t{0,-15} {1}\n", "add", "Add player with given name and properties."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "connect", "Connect a player to a discord user."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "connect", "Set game id and faction for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setid", "Set the game id for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setname", "Set the game name for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setfaction", "Set faction for the given player."));
@@ -247,7 +231,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player add Name
-		[RequireUserPermission(GuildPermission.Administrator)]
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("add")]
 		[Summary("Add new player.")]
 		public async Task AddAsync(string name = "", string id = "<N/A>", string faction = "<N/A>")
@@ -263,13 +247,52 @@ namespace TGAWarPlanetBot
 			else
 			{
 				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-				m_databaseService.AddPlayer(database, name, id, faction);
-				await ReplyAsync("Player " + name + " created!");
+				// Make sure we do not add players that already exist
+				Player player = m_databaseService.GetPlayer(database, name);
+				if (player == null)
+				{
+					m_databaseService.AddPlayer(database, name, id, faction);
+					await ReplyAsync("Player " + name + " created!");
+				}
+				else
+				{
+					await ReplyAsync("Player " + name + " already exist!");
+				}
+			}
+		}
+
+		// !player add Name
+		[RequireUserPermission(GuildPermission.Administrator)]
+		[Command("remove")]
+		[Summary("Remove existing player.")]
+		public async Task RemoveAsync(string name = "")
+		{
+			if (name.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player remove <name>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+			}
+			else
+			{
+				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+				Player player = m_databaseService.GetPlayer(database, name);
+				if (player != null)
+				{
+					m_databaseService.RemovePlayer(database, player);
+					await ReplyAsync($"Removed player {name}");
+				}
+				else
+				{
+					await ReplyAsync($"Failed to find player with name {name}");
+				}
 			}
 		}
 
 		// !player connect Name DiscordUser
-		[RequireUserPermission(GuildPermission.Administrator)]
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("connect")]
 		[Summary("Connect player to discord id.")]
 		public async Task ConnectAsync(string name = "", SocketUser user = null)
@@ -297,8 +320,39 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		// !player set Name GameId Faction
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
+		[Command("set")]
+		[Summary("Set game id and faction for player.")]
+		public async Task SetAsync(string name = "", string gameId = "", string faction = "")
+		{
+			if (name.Length == 0 || gameId.Length == 0 || faction.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player set <name> <game-id> <faction>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player player = m_databaseService.GetPlayer(database, name);
+			if (player != null)
+			{
+				player.GameId = gameId;
+				player.Faction = faction;
+				m_databaseService.UpdateDatabase(database);
+				await ReplyAsync($"Set game id of {name} -> {gameId}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find player with name {name}");
+			}
+		}
+
 		// !player setid Name GameId
-		[RequireUserPermission(GuildPermission.Administrator)]
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("setid")]
 		[Summary("Set game id for player.")]
 		public async Task SetIdAsync(string name = "", string gameId = "")
@@ -317,7 +371,8 @@ namespace TGAWarPlanetBot
 			Player player = m_databaseService.GetPlayer(database, name);
 			if (player != null)
 			{
-				m_databaseService.SetPlayerGameId(database, player, gameId);
+				player.GameId = gameId;
+				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set game id of {name} -> {gameId}");
 			}
 			else
@@ -327,7 +382,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player setname Name GameName
-		[RequireUserPermission(GuildPermission.Administrator)]
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("setname")]
 		[Summary("Set game name for player.")]
 		public async Task SetNameAsync(string name = "", string gameName = "")
@@ -346,7 +401,8 @@ namespace TGAWarPlanetBot
 			Player player = m_databaseService.GetPlayer(database, name);
 			if (player != null)
 			{
-				m_databaseService.SetPlayerGameName(database, player, gameName);
+				player.GameName = gameName;
+				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set game name of {name} -> {gameName}");
 			}
 			else
@@ -356,7 +412,7 @@ namespace TGAWarPlanetBot
 		}
 
 		// !player setfaction Name Faction
-		[RequireUserPermission(GuildPermission.Administrator)]
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("setfaction")]
 		[Summary("Set faction for player.")]
 		public async Task SetFactionAsync(string name = "", string faction = "")
@@ -375,7 +431,8 @@ namespace TGAWarPlanetBot
 			Player player = m_databaseService.GetPlayer(database, name);
 			if (player != null)
 			{
-				m_databaseService.SetPlayerFaction(database, player, faction);
+				player.Faction = faction;
+				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set faction of {name} -> {faction}");
 			}
 			else
