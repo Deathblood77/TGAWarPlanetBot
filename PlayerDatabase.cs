@@ -17,6 +17,7 @@ namespace TGAWarPlanetBot
 		public string GameName { get; set; }
 		public ulong DiscordId { get; set; }
 		public string GameId { get; set; }
+		public string Faction { get; set; }
 	}
 
 	public class PlayerDatabase
@@ -172,6 +173,16 @@ namespace TGAWarPlanetBot
 			UpdateDatabase(database);
 			return true;
 		}
+
+		public bool SetPlayerFaction(Player player, string faction, SocketGuild guild)
+		{
+			PlayerDatabase database = GetDatabase(guild);
+
+			player.Faction = faction;
+
+			UpdateDatabase(database);
+			return true;
+		}
 	}
 
 	[Group("player")]
@@ -197,13 +208,14 @@ namespace TGAWarPlanetBot
 		{
 			var sb = new System.Text.StringBuilder();
 			sb.Append("```");
-			sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", "Name", "GameName", "GameId"));
-			sb.Append("------------------------------------------------------\n");
+			sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", "Name", "GameName", "GameId", "Faction"));
+			sb.Append("---------------------------------------------------------------------\n");
 			foreach (var player in m_database.GetPlayers(Context.Guild))
 			{
 				string gameName = player.GameName != null ? player.GameName : "<N/A>";
 				string gameId = player.GameId != null ? player.GameId : "<N/A>";
-				sb.Append(String.Format("{0,-20} {1,-20} {2, -10}\n", player.Name, gameName, gameId));
+				string faction = player.Faction != null ? player.Faction : "<N/A>";
+				sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", player.Name, gameName, gameId, faction));
 			}
 			sb.Append("```");
 
@@ -281,6 +293,24 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		// !player setfaction Name Faction
+		[RequireUserPermission(GuildPermission.Administrator)]
+		[Command("setfaction")]
+		[Summary("Set faction for player.")]
+		public async Task SetFactionAsync(string name, string faction)
+		{
+			Player player = m_database.GetPlayer(name, Context.Guild);
+			if (player != null)
+			{
+				m_database.SetPlayerFaction(player, faction, Context.Guild);
+				await ReplyAsync($"Set faction of {name} -> {faction}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find player with name {name}");
+			}
+		}
+
 		// !player whois Name/GameId
 		[Command("whois")]
 		[Summary("Get player matching given name or it.")]
@@ -308,6 +338,8 @@ namespace TGAWarPlanetBot
 				sb.Append(String.Format("{0,-15} {1,-20}\n", "GameName:", gameName));
 				string gameId = player.GameId != null ? player.GameId : "<N/A>";
 				sb.Append(String.Format("{0,-15} {1,-20}\n", "GameId:", gameId));
+				string faction = player.Faction != null ? player.Faction : "<N/A>";
+				sb.Append(String.Format("{0,-15} {1,-20}\n", "Faction:", faction));
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
 			}
