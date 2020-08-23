@@ -2,5 +2,5 @@
 Discord bot for War Planet Online
 
 # Deploy
-dotnet build
-dotnet publish --configuration Release
+* dotnet build
+* dotnet publish --configuration Release
