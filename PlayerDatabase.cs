@@ -181,20 +181,26 @@ namespace TGAWarPlanetBot
 		[Summary("List all players with full details.")]
 		public async Task DetailsAsync()
 		{
-			var sb = new System.Text.StringBuilder();
-			sb.Append("```");
-			sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", "Name", "GameName", "GameId", "Faction"));
-			sb.Append("-------------------------------------------------------------------\n");
-			foreach (var player in m_databaseService.GetPlayers(Context.Guild))
-			{
-				string gameName = player.GameName != null ? player.GameName : "<N/A>";
-				string gameId = player.GameId != null ? player.GameId : "<N/A>";
-				string faction = player.Faction != null ? player.Faction : "<N/A>";
-				sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", player.Name, gameName, gameId, faction));
-			}
-			sb.Append("```");
+			var players = m_databaseService.GetPlayers(Context.Guild);
 
-			await ReplyAsync(sb.ToString());
+			// We have a limit for message size so we send one message for every 20 players
+			for (int i = 0; i < players.Count(); i += 20)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", "Name", "GameName", "GameId", "Faction"));
+				sb.Append("-------------------------------------------------------------------\n");
+				foreach (var player in players.Skip(i).Take(20))
+				{
+					string gameName = player.GameName != null ? player.GameName : "<N/A>";
+					string gameId = player.GameId != null ? player.GameId : "<N/A>";
+					string faction = player.Faction != null ? player.Faction : "<N/A>";
+					sb.Append(String.Format("{0,-20} {1,-20} {2, -15} {3, -5}\n", player.Name, gameName, gameId, faction));
+				}
+				sb.Append("```");
+
+				await ReplyAsync(sb.ToString());
+			}
 		}
 
 		private string GetPlayerList(IEnumerable<Player> players)
@@ -217,17 +223,25 @@ namespace TGAWarPlanetBot
 		[Summary("List all players.")]
 		public async Task ListAsync(string faction = "")
 		{
-			string playerList = "";
-			if (faction.Length == 0)
-			{
-				playerList = GetPlayerList(m_databaseService.GetPlayers(Context.Guild));
-			}
-			else
-			{
-				playerList = GetPlayerList(m_databaseService.GetPlayers(Context.Guild).Where(p => p.Faction == faction));
-			}
+			var players = faction.Length == 0 ? 
+				m_databaseService.GetPlayers(Context.Guild) :
+				m_databaseService.GetPlayers(Context.Guild).Where(p => p.Faction == faction);
 
-			await ReplyAsync(playerList);
+			// We have a limit for message size so we send one message for every 20 players
+			for (int i = 0; i < players.Count(); i += 20)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append(String.Format("{0,-20} {1, -5}\n", "Name", "Faction"));
+				sb.Append("----------------------------\n");
+				foreach (var player in players.Skip(i).Take(20))
+				{
+					string playerFaction = player.Faction != null ? player.Faction : "<N/A>";
+					sb.Append(String.Format("{0,-20} {1, -5}\n", player.Name, playerFaction));
+				}
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+			}
 		}
 
 		// !player add Name
