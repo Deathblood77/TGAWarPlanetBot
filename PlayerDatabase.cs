@@ -112,30 +112,14 @@ namespace TGAWarPlanetBot
 			UpdateDatabase(database);
 		}
 
-		public Player GetPlayer(PlayerDatabase database, string name)
+		public List<Player> FindPlayer(PlayerDatabase database, string name)
 		{
-			int index = database.Players.FindIndex(x => x.Name.ToLower() == name.ToLower());
-			if (index >= 0)
-			{
-				return database.Players[index];
-			}
-			else
-			{
-				return null;
-			}
+			return database.Players.FindAll(x => x.Name.ToLower() == name.ToLower());
 		}
 
-		public Player GetPlayerFromGameId(PlayerDatabase database, string gameId)
+		public List<Player> FindPlayerFromGameId(PlayerDatabase database, string gameId)
 		{
-			int index = database.Players.FindIndex(x => x.GameId == gameId);
-			if (index >= 0)
-			{
-				return database.Players[index];
-			}
-			else
-			{
-				return null;
-			}
+			return database.Players.FindAll(x => x.GameId == gameId);
 		}
 
 		public bool ConnectPlayer(PlayerDatabase database, Player player, SocketUser user)
@@ -262,8 +246,8 @@ namespace TGAWarPlanetBot
 			{
 				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
 				// Make sure we do not add players that already exist
-				Player player = m_databaseService.GetPlayer(database, name);
-				if (player == null)
+				List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+				if (matchingPlayers.Count == 0)
 				{
 					m_databaseService.AddPlayer(database, name, id, faction);
 					await ReplyAsync("Player " + name + " created!");
@@ -292,11 +276,15 @@ namespace TGAWarPlanetBot
 			else
 			{
 				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-				Player player = m_databaseService.GetPlayer(database, name);
-				if (player != null)
+				List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+				if (matchingPlayers.Count == 1)
 				{
-					m_databaseService.RemovePlayer(database, player);
+					m_databaseService.RemovePlayer(database, matchingPlayers[0]);
 					await ReplyAsync($"Removed player {name}");
+				}
+				else if (matchingPlayers.Count < 1)
+				{
+					await ReplyAsync($"Error: Multiple players with name {name}");
 				}
 				else
 				{
@@ -322,10 +310,10 @@ namespace TGAWarPlanetBot
 			}
 
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-			Player player = m_databaseService.GetPlayer(database, name);
-			if (player != null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+			if (matchingPlayers.Count > 0)
 			{
-				m_databaseService.ConnectPlayer(database, player, user);
+				m_databaseService.ConnectPlayer(database, matchingPlayers[0], user);
 				await ReplyAsync($"Connected {name} -> {user.Username}#{user.Discriminator}");
 			}
 			else
@@ -351,9 +339,10 @@ namespace TGAWarPlanetBot
 			}
 
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-			Player player = m_databaseService.GetPlayer(database, name);
-			if (player != null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+			if (matchingPlayers.Count > 0)
 			{
+				Player player = matchingPlayers[0];
 				player.GameId = gameId;
 				player.Faction = faction;
 				m_databaseService.UpdateDatabase(database);
@@ -382,10 +371,10 @@ namespace TGAWarPlanetBot
 			}
 
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-			Player player = m_databaseService.GetPlayer(database, name);
-			if (player != null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+			if (matchingPlayers.Count > 0)
 			{
-				player.GameId = gameId;
+				matchingPlayers[0].GameId = gameId;
 				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set game id of {name} -> {gameId}");
 			}
@@ -412,10 +401,10 @@ namespace TGAWarPlanetBot
 			}
 
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-			Player player = m_databaseService.GetPlayer(database, name);
-			if (player != null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+			if (matchingPlayers.Count > 0)
 			{
-				player.GameName = gameName;
+				matchingPlayers[0].GameName = gameName;
 				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set game name of {name} -> {gameName}");
 			}
@@ -442,10 +431,10 @@ namespace TGAWarPlanetBot
 			}
 
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
-			Player player = m_databaseService.GetPlayer(database, name);
-			if (player != null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, name);
+			if (matchingPlayers.Count > 0)
 			{
-				player.Faction = faction;
+				matchingPlayers[0].Faction = faction;
 				m_databaseService.UpdateDatabase(database);
 				await ReplyAsync($"Set faction of {name} -> {faction}");
 			}
@@ -477,23 +466,35 @@ namespace TGAWarPlanetBot
 			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
 
 			// Try to find player with name and if that fails from game id
-			Player player = m_databaseService.GetPlayer(database, nameOrId);
-			if (player == null)
+			List<Player> matchingPlayers = m_databaseService.FindPlayer(database, nameOrId);
+			if (matchingPlayers.Count == 0)
 			{
-				player = m_databaseService.GetPlayerFromGameId(database, nameOrId);
+				matchingPlayers = m_databaseService.FindPlayerFromGameId(database, nameOrId);
 			}
 
-			if (player != null)
+			if (matchingPlayers.Count > 0)
 			{
+				bool first = true;
 				var sb = new System.Text.StringBuilder();
 				sb.Append("```");
-				sb.Append(String.Format("{0,-15} {1,-20}\n", "Name:", player.Name));
-				string gameName = player.GameName != null ? player.GameName : "<N/A>";
-				sb.Append(String.Format("{0,-15} {1,-20}\n", "GameName:", gameName));
-				string gameId = player.GameId != null ? player.GameId : "<N/A>";
-				sb.Append(String.Format("{0,-15} {1,-20}\n", "GameId:", gameId));
-				string faction = player.Faction != null ? player.Faction : "<N/A>";
-				sb.Append(String.Format("{0,-15} {1,-20}\n", "Faction:", faction));
+				foreach (var player in matchingPlayers)
+				{
+					if (first)
+					{
+						first = false;
+					}
+					else
+					{
+						sb.Append("-----------------------\n");
+					}
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Name:", player.Name));
+					string gameName = player.GameName != null ? player.GameName : "<N/A>";
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "GameName:", gameName));
+					string gameId = player.GameId != null ? player.GameId : "<N/A>";
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "GameId:", gameId));
+					string faction = player.Faction != null ? player.Faction : "<N/A>";
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Faction:", faction));
+				}
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
 			}
