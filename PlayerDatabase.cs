@@ -38,9 +38,14 @@ namespace TGAWarPlanetBot
 		//public ulong DiscordId { get; set; }
 		public string GameId { get; set; }
 		[JsonIgnore]
-		public Faction Faction { get; set; }
+		public List<Faction> Factions { get; set; }
 		[JsonPropertyName("Faction")]
 		public string FactionName { get; set; } // Legacy field for reading data
+
+		public Player()
+		{
+			Factions = new List<Faction>();
+		}
 	}
 
 	public class PlayerDatabase
@@ -67,6 +72,7 @@ namespace TGAWarPlanetBot
 		public Faction Faction { get; set; }
 		public string Name { get; set; }
 		public string GameId { get; set; }
+		public User User { get; set; }
 	}
 
 	public class PlayerDatabaseService
@@ -90,7 +96,7 @@ namespace TGAWarPlanetBot
 			cmd.ExecuteNonQuery();
 
 			// Insert a default user
-			cmd.CommandText = @"INSERT INTO user(name, discord_id) VALUES('DefaultUser', 0)";
+			cmd.CommandText = @"INSERT INTO user(name, discord_id) VALUES('NoUser', 0)";
 			cmd.ExecuteNonQuery();
 
 			// Create base table
@@ -102,7 +108,7 @@ namespace TGAWarPlanetBot
 			cmd.ExecuteNonQuery();
 
 			// Insert unknown faction to use as default
-			cmd.CommandText = @"INSERT INTO faction(name) VALUES('Unknown')";
+			cmd.CommandText = @"INSERT INTO faction(name) VALUES('NoFaction')";
 			cmd.ExecuteNonQuery();
 
 			// Create base_faction table
@@ -155,7 +161,6 @@ namespace TGAWarPlanetBot
 							faction = AddFaction(database, player.FactionName);
 						}
 
-						player.Faction = faction;
 						AddPlayer(database, player.Name, faction, player.GameId);
 					}
 				}
@@ -234,12 +239,26 @@ namespace TGAWarPlanetBot
 			return database.Factions.FirstOrDefault(f => f.Name == name);
 		}
 
+		public Faction FindFaction(PlayerDatabase database, int id)
+		{
+			return database.Factions.FirstOrDefault(f => f.Id == id);
+		}
+
+		public void UpdateFaction(PlayerDatabase database, Faction faction)
+		{
+			using var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "UPDATE faction SET name = @name WHERE id = @factionId";
+			cmd.Parameters.AddWithValue("@name", faction.Name);
+			cmd.Parameters.AddWithValue("@factionId", faction.Id);
+			cmd.ExecuteNonQuery();
+		}
+
 		public void UpdatePlayerFaction(PlayerDatabase database, Player player)
 		{
 			var cmd = new SQLiteCommand(database.Conn);
 			cmd.CommandText = "INSERT INTO base_faction(base_id, faction_id) VALUES(@baseId, @factionId)";
 			cmd.Parameters.AddWithValue("@baseId", player.Id);
-			cmd.Parameters.AddWithValue("@factionId", player.Faction.Id);
+			cmd.Parameters.AddWithValue("@factionId", player.Factions[0].Id);
 			cmd.ExecuteNonQuery();
 		}
 
@@ -250,7 +269,8 @@ namespace TGAWarPlanetBot
 				faction = database.Factions.First(f => f.Id == Faction.Unknown);
 			}
 
-			Player newPlayer = new Player() { Name = name, GameId = gameId, Faction = faction };
+			Player newPlayer = new Player() { Name = name, GameId = gameId };
+			newPlayer.Factions.Insert(0, faction);
 
 			var cmd = new SQLiteCommand(database.Conn);
 			cmd.CommandText = "INSERT INTO base(user_id, name, game_id) VALUES(@userId, @name, @gameId)";
@@ -263,9 +283,6 @@ namespace TGAWarPlanetBot
 
 			// Add faction mapping
 			UpdatePlayerFaction(database, newPlayer);
-			// cmd.CommandText = String.Format(@"INSERT INTO base_faction(base_id, faction_id) VALUES({0}, {1})", newPlayer.Id, faction.Id);
-			// cmd.CommandText = "INSERT INTO base_faction(base_id, faction_id) VALUES(@baseId, {1})";
-			// cmd.ExecuteNonQuery();
 
 			return newPlayer;
 		}
@@ -310,24 +327,28 @@ namespace TGAWarPlanetBot
 				"LEFT JOIN user ON user.id = base.user_id " +
 				"LEFT JOIN base_faction ON base_faction.base_id = base.id";
 
+			// We can't filter on faction here since it will give results from previous factions
 			if (filter != null)
 			{
-				stm += " WHERE ";
-				if (filter.Faction != null)
+				// if (filter.Faction != null)
+				// {
+				// 	stm += "faction_id = " + filter.Faction.Id;
+				// }
+				if (filter.Name != null)
 				{
-					stm += "faction_id = " + filter.Faction.Id;
-				}
-				else if (filter.Name != null)
-				{
-					stm += "base.name = '" + filter.Name + "'";
+					stm += " WHERE base.name = '" + filter.Name + "'";
 				}
 				else if (filter.GameId != null)
 				{
-					stm += "base.game_id = '" + filter.GameId + "'";
+					stm += " WHERE base.game_id = '" + filter.GameId + "'";
+				}
+				else if (filter.User != null)
+				{
+					stm += " WHERE user_id = " + filter.User.Id;
 				}
 			}
 			
-			stm += " ORDER BY base.id ASC, faction_id DESC";
+			stm += " ORDER BY base.id ASC, base_faction.id DESC";
 
 			using var cmd = new SQLiteCommand(stm, database.Conn);
 			using SQLiteDataReader rdr = cmd.ExecuteReader();
@@ -340,16 +361,22 @@ namespace TGAWarPlanetBot
 				int playerId = rdr.GetInt32(0);
 				if (previousPlayer != null && playerId == previousPlayer.Id)
 				{
-					// TODO: Add to faction array
+					int factionId = rdr.GetInt32(6);
+					previousPlayer.Factions.Add(database.Factions.First(f => f.Id == factionId));
 				}
 				else
 				{
 					User user = new User() { Id = rdr.GetInt32(4), Name = rdr.GetString(3), DiscordId = (ulong)rdr.GetInt64(5) };
 					Player player = new Player() { Id = playerId, Name = rdr.GetString(1), GameId = rdr.GetString(2), User = user };
 					int factionId = rdr.GetInt32(6);
-					player.Faction = database.Factions.First(f => f.Id == factionId);
+					player.Factions.Add(database.Factions.First(f => f.Id == factionId));
 
-					players.Add(player);
+					// We have to do the faction filtering here until we figure out the correct SQL
+					if (filter == null || filter.Faction == null || filter.Faction.Id == factionId)
+					{
+						players.Add(player);
+					}
+					
 					previousPlayer = player;
 				}
 			}
@@ -372,7 +399,7 @@ namespace TGAWarPlanetBot
 				"LEFT JOIN user ON user.id = base.user_id " +
 				"LEFT JOIN base_faction ON base_faction.base_id = base.id " +
 				"WHERE base.id = " + id +
-				" ORDER BY base.id ASC, faction_id DESC";
+				" ORDER BY base.id ASC, base_faction.id DESC";
 
 			var cmd = new SQLiteCommand(stm, database.Conn);
 			SQLiteDataReader rdr = cmd.ExecuteReader();
@@ -389,7 +416,14 @@ namespace TGAWarPlanetBot
 					GameId = rdr.GetString(2), User = user };
 				
 				int factionId = rdr.GetInt32(6);
-				player.Faction = database.Factions.First(f => f.Id == factionId);
+				player.Factions.Add(database.Factions.First(f => f.Id == factionId));
+
+				// We might have additional entries if there are multiple factions
+				while (rdr.Read())
+				{
+					factionId = rdr.GetInt32(6);
+					player.Factions.Add(database.Factions.First(f => f.Id == factionId));
+				}
 				
 				return player;
 			}
@@ -423,11 +457,8 @@ namespace TGAWarPlanetBot
 			return true;
 		}
 
-		public User FindUser(PlayerDatabase database, string name)
+		private User FindUser(SQLiteCommand cmd)
 		{
-			var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = "SELECT * FROM user WHERE name = @name";
-			cmd.Parameters.AddWithValue("@name", name);
 			SQLiteDataReader rdr = cmd.ExecuteReader();
 			if (rdr.Read())
 			{
@@ -444,25 +475,31 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		public User FindUser(PlayerDatabase database, string name)
+		{
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "SELECT * FROM user WHERE name = @name";
+			cmd.Parameters.AddWithValue("@name", name);
+			
+			return FindUser(cmd);
+		}
+
 		public User FindUser(PlayerDatabase database, SocketUser discordUser)
 		{
 			var cmd = new SQLiteCommand(database.Conn);
 			cmd.CommandText = "SELECT * FROM user WHERE discord_id = @discordId";
 			cmd.Parameters.AddWithValue("@discordId", discordUser.Id);
-			SQLiteDataReader rdr = cmd.ExecuteReader();
-			if (rdr.Read())
-			{
-				User user = new User() { 
-					Id = rdr.GetInt32(0),
-					Name = rdr.GetString(1),
-					DiscordId = (ulong)rdr.GetInt64(2) };
+			
+			return FindUser(cmd);
+		}
 
-				return user;
-			}
-			else
-			{
-				return null;
-			}
+		public User FindUser(PlayerDatabase database, int id)
+		{
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "SELECT * FROM user WHERE id = @id";
+			cmd.Parameters.AddWithValue("@id", id);
+			
+			return FindUser(cmd);
 		}
 
 		public User AddUser(PlayerDatabase database, string name, ulong discordId)
@@ -514,12 +551,17 @@ namespace TGAWarPlanetBot
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setid", "Set the game id for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setname", "Set the game name for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "setfaction", "Set faction for the given player."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "setuser", "Set user for given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "list", "List all players."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "whois", "Display information for the given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "search", "Same as whois."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "find", "Same as whois."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "addfaction", "Add faction with given name."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "findfaction", "Find faction with given name."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "setfactionname", "Set name for given faction."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "adduser", "Add user with given name."));
-			sb.Append(String.Format("\t{0,-15} {1}\n", "setuser", "Set user for given player."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "finduser", "Find user with given name."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "setusername", "Set name for given user."));
 			sb.Append("```");
 			await ReplyAsync(sb.ToString());
 		}
@@ -542,7 +584,7 @@ namespace TGAWarPlanetBot
 				foreach (var player in players.Skip(i).Take(20))
 				{
 					string gameId = player.GameId != null ? player.GameId : "<N/A>";
-					sb.Append(String.Format("{0,-3} {1,-20} {2,-20} {3, -15} {4, -5}\n", player.Id, player.Name, player.User.Name, gameId, player.Faction.Name));
+					sb.Append(String.Format("{0,-3} {1,-20} {2,-20} {3, -15} {4, -5}\n", player.Id, player.Name, player.User.Name, gameId, player.Factions[0].Name));
 				}
 				sb.Append("```");
 
@@ -550,19 +592,19 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		private string GetPlayerList(IEnumerable<Player> players)
-		{
-			var sb = new System.Text.StringBuilder();
-			sb.Append("```");
-			sb.Append(String.Format("{0,-20} {1, -5}\n", "Name", "Faction"));
-			sb.Append("----------------------------\n");
-			foreach (var player in players)
-			{
-				sb.Append(String.Format("{0,-20} {1, -5}\n", player.Name, player.Faction.Name));
-			}
-			sb.Append("```");
-			return sb.ToString();
-		}
+		// private string GetPlayerList(IEnumerable<Player> players)
+		// {
+		// 	var sb = new System.Text.StringBuilder();
+		// 	sb.Append("```");
+		// 	sb.Append(String.Format("{0,-20} {1, -5}\n", "Name", "Faction"));
+		// 	sb.Append("----------------------------\n");
+		// 	foreach (var player in players)
+		// 	{
+		// 		sb.Append(String.Format("{0,-20} {1, -5}\n", player.Name, player.Factions[0].Name));
+		// 	}
+		// 	sb.Append("```");
+		// 	return sb.ToString();
+		// }
 
 		// !player list
 		[Command("list")]
@@ -599,7 +641,7 @@ namespace TGAWarPlanetBot
 				sb.Append("----------------------------\n");
 				foreach (var player in players.Skip(i).Take(20))
 				{
-					sb.Append(String.Format("{0,-20} {1, -5}\n", player.Name, player.Faction.Name));
+					sb.Append(String.Format("{0,-20} {1, -5}\n", player.Name, player.Factions[0].Name));
 				}
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
@@ -638,6 +680,81 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		// !player findFaction Name
+		[Command("findfaction")]
+		[Summary("Get faction with matching name.")]
+		public async Task FindFactionAsync(string name = "")
+		{
+			if (name.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player faction <name>\n");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Faction matchingFaction = m_databaseService.FindFaction(database, name);
+			if (matchingFaction != null)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+
+				// Only show id for users that can change player data
+				SocketGuildUser commandUser = Context.User as SocketGuildUser;
+				if (commandUser.GuildPermissions.ManageNicknames)
+				{
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Id:", matchingFaction.Id));
+				}
+				sb.Append(String.Format("{0,-15} {1,-20}\n", "Name:", matchingFaction.Name));
+
+				// Find how many players faction have
+				PlayerFilter filter = new PlayerFilter() { Faction = matchingFaction };
+				List<Player> players = m_databaseService.FindPlayers(database, filter);
+				sb.Append(String.Format("{0,-15} {1,-20}\n", "Members", players.Count));
+
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find faction {name}");
+			}
+		}
+
+		// !player setfactionname Id Name
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
+		[Command("setfactionname")]
+		[Summary("Set name for faction.")]
+		public async Task SetFactionNameAsync(int id = -1, string name = "")
+		{
+			if (id < 0 || name.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player setfactionname <id> <name>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Faction matchingFaction = m_databaseService.FindFaction(database, id);
+			if (matchingFaction != null)
+			{
+				matchingFaction.Name = name;
+				m_databaseService.UpdateFaction(database, matchingFaction);
+
+				await ReplyAsync($"Set name of faction {id} -> {name}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find faction with id {id}");
+			}
+		}
+
 		// !player adduser Name
 		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("adduser")]
@@ -667,6 +784,96 @@ namespace TGAWarPlanetBot
 				{
 					await ReplyAsync("User " + name + " already exist!");
 				}
+			}
+		}
+
+		// !player finduser Name
+		[Command("finduser")]
+		[Summary("Get user with matching name.")]
+		public async Task FindUserAsync(string name = "")
+		{
+			if (name.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player finduser <name>\n");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			User matchingUser = m_databaseService.FindUser(database, name);
+			if (matchingUser != null)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+
+				// Only show id for users that can change player data
+				SocketGuildUser commandUser = Context.User as SocketGuildUser;
+				if (commandUser.GuildPermissions.ManageNicknames)
+				{
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Id:", matchingUser.Id));
+				}
+				sb.Append(String.Format("{0,-15} {1,-20}\n", "Name:", matchingUser.Name));
+
+				// Find all players for user
+				PlayerFilter filter = new PlayerFilter() { User = matchingUser };
+				List<Player> players = m_databaseService.FindPlayers(database, filter);
+				if (players.Count > 0)
+				{
+					var playerNames = new List<string>();
+					int count = 0;
+					foreach (Player player in players)
+					{
+						playerNames.Add(player.Name);
+						count += 1;
+						if (count > 50)
+						{
+							playerNames.Add("...");
+							break;
+						}
+					}
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Bases:", string.Join(", ", playerNames)));
+				}
+
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find user with {name}");
+			}
+		}
+
+		// !player setusername Id Name
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
+		[Command("setusername")]
+		[Summary("Set name for user.")]
+		public async Task SetUserNameAsync(int id = -1, string name = "")
+		{
+			if (id < 0 || name.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player setusername <id> <name>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			User matchingUser = m_databaseService.FindUser(database, id);
+			if (matchingUser != null)
+			{
+				matchingUser.Name = name;
+				m_databaseService.UpdateUser(database, matchingUser);
+
+				await ReplyAsync($"Set name of user {id} -> {name}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find user with id {id}");
 			}
 		}
 
@@ -848,9 +1055,9 @@ namespace TGAWarPlanetBot
 					m_databaseService.UpdatePlayer(database, matchingPlayer);
 				}
 				
-				if (matchingPlayer.Faction != faction)
+				if (matchingPlayer.Factions[0] != faction)
 				{
-					matchingPlayer.Faction = faction;
+					matchingPlayer.Factions.Insert(0, faction);
 					m_databaseService.UpdatePlayerFaction(database, matchingPlayer);
 				}
 				
@@ -955,9 +1162,9 @@ namespace TGAWarPlanetBot
 				}
 
 				// Only update if value changed
-				if (matchingPlayer.Faction != faction)
+				if (matchingPlayer.Factions[0] != faction)
 				{
-					matchingPlayer.Faction = faction;
+					matchingPlayer.Factions.Insert(0, faction);
 					m_databaseService.UpdatePlayerFaction(database, matchingPlayer);
 				}
 				
@@ -971,7 +1178,7 @@ namespace TGAWarPlanetBot
 
 		// !player whois Name/GameId
 		[Command("whois")]
-		[Alias("search")]
+		[Alias("search", "find")]
 		[Summary("Get player matching given name or it.")]
 		public async Task WhoIsAsync(string nameOrId = "")
 		{
@@ -1025,7 +1232,17 @@ namespace TGAWarPlanetBot
 					sb.Append(String.Format("{0,-15} {1,-20}\n", "User:", player.User.Name));
 					string gameId = player.GameId != null ? player.GameId : "<N/A>";
 					sb.Append(String.Format("{0,-15} {1,-20}\n", "GameId:", gameId));
-					sb.Append(String.Format("{0,-15} {1,-20}\n", "Faction:", player.Faction.Name));
+					sb.Append(String.Format("{0,-15} {1,-20}\n", "Faction:", player.Factions[0].Name));
+					if (player.Factions.Count > 1)
+					{
+						var factions = new List<string>();
+						foreach (Faction faction in player.Factions.Skip(1))
+						{
+							factions.Add(faction.Name);
+						}
+						sb.Append(String.Format("{0,-15} {1,-20}\n", "Previous:", string.Join(", ", factions)));
+					}
+
 				}
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
