@@ -71,7 +71,7 @@ namespace TGAWarPlanetBot
 
 	public class PlayerDatabaseService
 	{
-		private readonly string m_databaseDir = "db/player";
+		private readonly string m_databaseDir = "db";
 		private Dictionary<ulong, PlayerDatabase> m_databases;
 
 		private void CreateDatabase(SQLiteConnection conn)
@@ -145,6 +145,19 @@ namespace TGAWarPlanetBot
 				if (!dbExist)
 				{
 					CreateDatabase(conn);
+
+					foreach (Player player in database.Players)
+					{
+						Faction faction = FindFaction(database, player.FactionName);
+						// Create factions that don't exist
+						if (faction == null)
+						{
+							faction = AddFaction(database, player.FactionName);
+						}
+
+						player.Faction = faction;
+						AddPlayer(database, player.Name, faction, player.GameId);
+					}
 				}
 				else
 				{
@@ -227,17 +240,21 @@ namespace TGAWarPlanetBot
 			cmd.ExecuteNonQuery();
 		}
 
-		public Player AddPlayer(PlayerDatabase database, string name, Faction faction, string id)
+		public Player AddPlayer(PlayerDatabase database, string name, Faction faction, string gameId)
 		{
 			if (faction == null)
 			{
 				faction = database.Factions.First(f => f.Id == Faction.Unknown);
 			}
 
-			Player newPlayer = new Player() { Name = name, GameId = id, Faction = faction };
+			Player newPlayer = new Player() { Name = name, GameId = gameId, Faction = faction };
 
 			using var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = String.Format(@"INSERT INTO base(user_id, name, game_id) VALUES({0}, '{1}', '{2}')", User.Default, name, id);
+			//cmd.CommandText = String.Format(@"INSERT INTO base(user_id, name, game_id) VALUES({0}, '{1}', '{2}')", User.Default, name, gameId);
+			cmd.CommandText = "INSERT INTO base(user_id, name, game_id) VALUES(@userId, @name, @gameId)";
+			cmd.Parameters.AddWithValue("@userId", User.Default);
+			cmd.Parameters.AddWithValue("@name", name);
+			cmd.Parameters.AddWithValue("@gameId", gameId);
 			cmd.ExecuteNonQuery();
 
 			newPlayer.Id = (Int32)database.Conn.LastInsertRowId;
@@ -833,6 +850,12 @@ namespace TGAWarPlanetBot
 					else
 					{
 						sb.Append("-----------------------\n");
+					}
+					// Only show id for users that can change player data
+					SocketGuildUser commandUser = Context.User as SocketGuildUser;
+					if (commandUser.GuildPermissions.ManageNicknames)
+					{
+						sb.Append(String.Format("{0,-15} {1,-20}\n", "Id:", player.Id));
 					}
 					sb.Append(String.Format("{0,-15} {1,-20}\n", "Name:", player.Name));
 					sb.Append(String.Format("{0,-15} {1,-20}\n", "User:", player.User.Name));
