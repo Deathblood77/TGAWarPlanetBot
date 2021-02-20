@@ -219,7 +219,8 @@ namespace TGAWarPlanetBot
 			Faction faction = new Faction() { Name = name };
 
 			var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = @"INSERT INTO faction(name) VALUES('" + name + "')";
+			cmd.CommandText = "INSERT INTO faction(name) VALUES(@name)";
+			cmd.Parameters.AddWithValue("@name", name);
 			cmd.ExecuteNonQuery();
 
 			faction.Id = (Int32)database.Conn.LastInsertRowId;
@@ -233,10 +234,12 @@ namespace TGAWarPlanetBot
 			return database.Factions.FirstOrDefault(f => f.Name == name);
 		}
 
-		public void UpdateFaction(PlayerDatabase database, Player player)
+		public void UpdatePlayerFaction(PlayerDatabase database, Player player)
 		{
-			using var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = String.Format(@"INSERT INTO base_faction(base_id, faction_id) VALUES({0}, {1})", player.Id, player.Faction.Id);
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "INSERT INTO base_faction(base_id, faction_id) VALUES(@baseId, @factionId)";
+			cmd.Parameters.AddWithValue("@baseId", player.Id);
+			cmd.Parameters.AddWithValue("@factionId", player.Faction.Id);
 			cmd.ExecuteNonQuery();
 		}
 
@@ -249,8 +252,7 @@ namespace TGAWarPlanetBot
 
 			Player newPlayer = new Player() { Name = name, GameId = gameId, Faction = faction };
 
-			using var cmd = new SQLiteCommand(database.Conn);
-			//cmd.CommandText = String.Format(@"INSERT INTO base(user_id, name, game_id) VALUES({0}, '{1}', '{2}')", User.Default, name, gameId);
+			var cmd = new SQLiteCommand(database.Conn);
 			cmd.CommandText = "INSERT INTO base(user_id, name, game_id) VALUES(@userId, @name, @gameId)";
 			cmd.Parameters.AddWithValue("@userId", User.Default);
 			cmd.Parameters.AddWithValue("@name", name);
@@ -260,8 +262,10 @@ namespace TGAWarPlanetBot
 			newPlayer.Id = (Int32)database.Conn.LastInsertRowId;
 
 			// Add faction mapping
-			cmd.CommandText = String.Format(@"INSERT INTO base_faction(base_id, faction_id) VALUES({0}, {1})", newPlayer.Id, faction.Id);
-			cmd.ExecuteNonQuery();
+			UpdatePlayerFaction(database, newPlayer);
+			// cmd.CommandText = String.Format(@"INSERT INTO base_faction(base_id, faction_id) VALUES({0}, {1})", newPlayer.Id, faction.Id);
+			// cmd.CommandText = "INSERT INTO base_faction(base_id, faction_id) VALUES(@baseId, {1})";
+			// cmd.ExecuteNonQuery();
 
 			return newPlayer;
 		}
@@ -270,18 +274,24 @@ namespace TGAWarPlanetBot
 		{
 			// Delete the player
 			using var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = String.Format(@"DELETE FROM base WHERE id = {0})", player.Id);
+			cmd.CommandText = "DELETE FROM base WHERE id = @playerId)";
+			cmd.Parameters.AddWithValue("@playerId", player.Id);
 			cmd.ExecuteNonQuery();
 
 			// Delete faction mappings
-			cmd.CommandText = String.Format(@"DELETE FROM base_faction WHERE base_id = {0})", player.Id);
+			cmd.CommandText = "DELETE FROM base_faction WHERE base_id = @playerId)";
+			cmd.Parameters.AddWithValue("@playerId", player.Id);
 			cmd.ExecuteNonQuery();
 		}
 
 		public void UpdatePlayer(PlayerDatabase database, Player player)
 		{
 			using var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = String.Format(@"UPDATE base SET name = '{0}', user_id = {1}, game_id = '{2}' WHERE id = {3}", player.Name, player.User.Id, player.GameId, player.Id);
+			cmd.CommandText = "UPDATE base SET name = @name, user_id = @userId, game_id = @gameId WHERE id = @playerId";
+			cmd.Parameters.AddWithValue("@name", player.Name);
+			cmd.Parameters.AddWithValue("@userId", player.User.Id);
+			cmd.Parameters.AddWithValue("@gameId", player.GameId);
+			cmd.Parameters.AddWithValue("@playerId", player.Id);
 			cmd.ExecuteNonQuery();
 		}
 
@@ -368,8 +378,16 @@ namespace TGAWarPlanetBot
 			SQLiteDataReader rdr = cmd.ExecuteReader();
 			if (rdr.Read())
 			{
-				User user = new User() { Id = rdr.GetInt32(4), Name = rdr.GetString(3), DiscordId = (ulong)rdr.GetInt64(5) };
-				Player player = new Player() { Id = rdr.GetInt32(0), Name = rdr.GetString(1), GameId = rdr.GetString(2), User = user };
+				User user = new User() { 
+					Id = rdr.GetInt32(4),
+					Name = rdr.GetString(3),
+					DiscordId = (ulong)rdr.GetInt64(5) };
+				
+				Player player = new Player() {
+					Id = rdr.GetInt32(0),
+					Name = rdr.GetString(1),
+					GameId = rdr.GetString(2), User = user };
+				
 				int factionId = rdr.GetInt32(6);
 				player.Faction = database.Factions.First(f => f.Id == factionId);
 				
@@ -386,11 +404,13 @@ namespace TGAWarPlanetBot
 			// If user is default user we create a new user
 			if (player.User.Id == User.Default)
 			{
-				using var cmd = new SQLiteCommand(database.Conn);
-				cmd.CommandText = String.Format(@"INSERT INTO user(name, discord_id) VALUES('{0}', {1})", discordUser.Username, discordUser.Id);
-				cmd.ExecuteNonQuery();
+				// Check if there already is a user for this discord id
+				User user = FindUser(database, discordUser);
+				if (user == null)
+				{
+					user = AddUser(database, discordUser.Username, discordUser.Id);
+				}
 
-				User user = new User() { Id = (Int32)database.Conn.LastInsertRowId, Name = discordUser.Username, DiscordId = discordUser.Id };
 				player.User = user;
 				UpdatePlayer(database, player);
 			}
@@ -403,10 +423,71 @@ namespace TGAWarPlanetBot
 			return true;
 		}
 
+		public User FindUser(PlayerDatabase database, string name)
+		{
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "SELECT * FROM user WHERE name = @name";
+			cmd.Parameters.AddWithValue("@name", name);
+			SQLiteDataReader rdr = cmd.ExecuteReader();
+			if (rdr.Read())
+			{
+				User user = new User() { 
+					Id = rdr.GetInt32(0),
+					Name = rdr.GetString(1),
+					DiscordId = (ulong)rdr.GetInt64(2) };
+
+				return user;
+			}
+			else
+			{
+				return null;
+			}
+		}
+
+		public User FindUser(PlayerDatabase database, SocketUser discordUser)
+		{
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "SELECT * FROM user WHERE discord_id = @discordId";
+			cmd.Parameters.AddWithValue("@discordId", discordUser.Id);
+			SQLiteDataReader rdr = cmd.ExecuteReader();
+			if (rdr.Read())
+			{
+				User user = new User() { 
+					Id = rdr.GetInt32(0),
+					Name = rdr.GetString(1),
+					DiscordId = (ulong)rdr.GetInt64(2) };
+
+				return user;
+			}
+			else
+			{
+				return null;
+			}
+		}
+
+		public User AddUser(PlayerDatabase database, string name, ulong discordId)
+		{
+			var cmd = new SQLiteCommand(database.Conn);
+			cmd.CommandText = "INSERT INTO user(name, discord_id) VALUES(@name, @discordId)";
+			cmd.Parameters.AddWithValue("@name", name);
+			cmd.Parameters.AddWithValue("@discordId", discordId);
+			cmd.ExecuteNonQuery();
+
+			User user = new User() { 
+				Id = (Int32)database.Conn.LastInsertRowId, 
+				Name = name,
+				DiscordId = discordId};
+
+			return user;
+		}
+
 		public void UpdateUser(PlayerDatabase database, User user)
 		{
 			using var cmd = new SQLiteCommand(database.Conn);
-			cmd.CommandText = String.Format(@"UPDATE user SET name = '{0}', discord_id = {1} WHERE id = {2}", user.Name, user.DiscordId, user.Id);
+			cmd.CommandText = "UPDATE user SET name = @name, discord_id = @discordId WHERE id = @userId";
+			cmd.Parameters.AddWithValue("@name", user.Name);
+			cmd.Parameters.AddWithValue("@discordId", user.DiscordId);
+			cmd.Parameters.AddWithValue("@userId", user.Id);
 			cmd.ExecuteNonQuery();
 		}
 	}
@@ -436,6 +517,9 @@ namespace TGAWarPlanetBot
 			sb.Append(String.Format("\t{0,-15} {1}\n", "list", "List all players."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "whois", "Display information for the given player."));
 			sb.Append(String.Format("\t{0,-15} {1}\n", "search", "Same as whois."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "addfaction", "Add faction with given name."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "adduser", "Add user with given name."));
+			sb.Append(String.Format("\t{0,-15} {1}\n", "setuser", "Set user for given player."));
 			sb.Append("```");
 			await ReplyAsync(sb.ToString());
 		}
@@ -498,6 +582,7 @@ namespace TGAWarPlanetBot
 					sb.Append("Faction with name '" + factionName + "' not found!");
 					sb.Append("```");
 					await ReplyAsync(sb.ToString());
+					return;
 				}
 
 				filter = new PlayerFilter() { Faction = faction };
@@ -521,9 +606,9 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		// !player addFaction Name
+		// !player addfaction Name
 		[RequireUserPermission(GuildPermission.ManageNicknames)]
-		[Command("addFaction")]
+		[Command("addfaction")]
 		[Summary("Add new faction.")]
 		public async Task AddFactionAsync(string name = "")
 		{
@@ -531,9 +616,10 @@ namespace TGAWarPlanetBot
 			{
 				var sb = new System.Text.StringBuilder();
 				sb.Append("```");
-				sb.Append("usage: !player addFaction <name>");
+				sb.Append("usage: !player addfaction <name>");
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
+				return;
 			}
 			else
 			{
@@ -552,6 +638,38 @@ namespace TGAWarPlanetBot
 			}
 		}
 
+		// !player adduser Name
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
+		[Command("adduser")]
+		[Summary("Add new User.")]
+		public async Task AddUserAsync(string name = "")
+		{
+			if (name.Length == 0 || name.StartsWith("!"))
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player adduser <name>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+			else
+			{
+				PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+				// Make sure we do not add users that already exist
+				User user = m_databaseService.FindUser(database, name);
+				if (user == null)
+				{
+					m_databaseService.AddUser(database, name, 0);
+					await ReplyAsync("User " + name + " created!");
+				}
+				else
+				{
+					await ReplyAsync("User " + name + " already exist!");
+				}
+			}
+		}
+
 		// !player add Name
 		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("add")]
@@ -565,6 +683,7 @@ namespace TGAWarPlanetBot
 				sb.Append("usage: !player add <name> [<game-id>] [<faction>]");
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
+				return;
 			}
 			else
 			{
@@ -581,6 +700,7 @@ namespace TGAWarPlanetBot
 						sb.Append("Failed to find faction " + factionName);
 						sb.Append("```");
 						await ReplyAsync(sb.ToString());
+						return;
 					}
 				}
 				m_databaseService.AddPlayer(database, name, faction, id);
@@ -601,6 +721,7 @@ namespace TGAWarPlanetBot
 				sb.Append("usage: !player remove <id>");
 				sb.Append("```");
 				await ReplyAsync(sb.ToString());
+				return;
 			}
 			else
 			{
@@ -618,7 +739,7 @@ namespace TGAWarPlanetBot
 			}
 		}
 
-		// !player connect Name DiscordUser
+		// !player connect Id DiscordUser
 		[RequireUserPermission(GuildPermission.ManageNicknames)]
 		[Command("connect")]
 		[Summary("Connect player to discord id.")]
@@ -640,6 +761,47 @@ namespace TGAWarPlanetBot
 			{
 				m_databaseService.ConnectPlayer(database, matchingPlayer, user);
 				await ReplyAsync($"Connected {id} -> {user.Username}#{user.Discriminator}");
+			}
+			else
+			{
+				await ReplyAsync($"Failed to find player with id {id}");
+			}
+		}
+
+		// !player setuser Id User
+		[RequireUserPermission(GuildPermission.ManageNicknames)]
+		[Command("setuser")]
+		[Summary("Connect player to discord id.")]
+		public async Task SetUserAsync(int id = -1, string username = "")
+		{
+			if (id < 0 || username.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player setuser <id> <username>");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			Player matchingPlayer = m_databaseService.FindPlayer(database, id);
+			if (matchingPlayer != null)
+			{
+				User user = m_databaseService.FindUser(database, username);
+				if (user == null)
+				{
+					var sb = new System.Text.StringBuilder();
+					sb.Append("```");
+					sb.Append("Failed to find user " + username);
+					sb.Append("```");
+					await ReplyAsync(sb.ToString());
+					return;
+				}
+
+				matchingPlayer.User = user;
+				m_databaseService.UpdatePlayer(database, matchingPlayer);
+				await ReplyAsync($"Set user of {id} -> {username}");
 			}
 			else
 			{
@@ -675,6 +837,7 @@ namespace TGAWarPlanetBot
 					sb.Append("Failed to find faction " + factionName);
 					sb.Append("```");
 					await ReplyAsync(sb.ToString());
+					return;
 				}
 
 				// Only update if values have changed
@@ -688,7 +851,7 @@ namespace TGAWarPlanetBot
 				if (matchingPlayer.Faction != faction)
 				{
 					matchingPlayer.Faction = faction;
-					m_databaseService.UpdateFaction(database, matchingPlayer);
+					m_databaseService.UpdatePlayerFaction(database, matchingPlayer);
 				}
 				
 				await ReplyAsync($"Updated player {matchingPlayer.Name} with id {id}");
@@ -788,13 +951,14 @@ namespace TGAWarPlanetBot
 					sb.Append("Failed to find faction " + factionName);
 					sb.Append("```");
 					await ReplyAsync(sb.ToString());
+					return;
 				}
 
 				// Only update if value changed
 				if (matchingPlayer.Faction != faction)
 				{
 					matchingPlayer.Faction = faction;
-					m_databaseService.UpdateFaction(database, matchingPlayer);
+					m_databaseService.UpdatePlayerFaction(database, matchingPlayer);
 				}
 				
 				await ReplyAsync($"Set faction of {id} -> {faction.Name}");
