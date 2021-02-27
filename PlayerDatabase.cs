@@ -6,12 +6,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Jitbit.Utils;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 
 namespace TGAWarPlanetBot
-{	
+{
 	public class Faction
 	{
 		public static int Unknown = 1;
@@ -33,6 +34,8 @@ namespace TGAWarPlanetBot
 	{
 		public int Id { get; set; }
 		public string Name { get; set; }
+		public int Level { get; set; }
+		public bool IsFarm { get; set; }
 		[JsonIgnore]
 		public User User { get; set; }
 		//public ulong DiscordId { get; set; }
@@ -44,7 +47,14 @@ namespace TGAWarPlanetBot
 
 		public Player()
 		{
+			Id = -1;
+			Name = "NoName";
+			Level = 0;
+			IsFarm = false;
+			User = null;
+			GameId = "N/A";
 			Factions = new List<Faction>();
+			FactionName = "NoFaction";
 		}
 	}
 
@@ -1252,5 +1262,55 @@ namespace TGAWarPlanetBot
 				await ReplyAsync($"Failed to find player matching {nameOrId}");
 			}
 		}
+
+		// Commands for admins
+		#region admin
+
+		// !player setfaction Name Faction
+		[RequireUserPermission(GuildPermission.Administrator)]
+		[Command("exporttocvs")]
+		[Summary("Export to CVS.")]
+		public async Task ExportToCvsAsync(string fileName = "")
+		{
+			if (fileName.Length == 0)
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player exporttocvs <fileName.csv>\n");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			if (Path.GetExtension(fileName) != ".csv")
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.Append("```");
+				sb.Append("usage: !player exporttocvs <fileName.csv>\n");
+				sb.Append("```");
+				await ReplyAsync(sb.ToString());
+				return;
+			}
+
+			PlayerDatabase database = m_databaseService.GetDatabase(Context.Guild);
+			var exporter = new CsvExport();
+
+			List<Player> players = m_databaseService.FindPlayers(database);
+			foreach (Player player in players)
+			{
+				exporter.AddRow();
+				exporter["UserName"] = player.User.Name;
+				exporter["BaseName"] = player.Name;
+				exporter["BaseLevel"] = player.Level;
+				exporter["GameId"] = player.GameId;
+				exporter["Faction"] = player.Factions[0].Name;
+				exporter["Farm"] = player.IsFarm ? "Y" : "N";
+			}
+
+			exporter.ExportToFile(fileName);
+			await ReplyAsync($"Exported to CSV");
+		}
+
+		#endregion // #region admin
 	}
 }
